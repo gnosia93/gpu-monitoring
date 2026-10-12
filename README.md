@@ -144,6 +144,49 @@ Lab 1~3을 실제 명령어·Compose 파일·Prometheus 설정까지 완성본�
 
 -----------------
 
+GPU 확보가 어려운 상황, 워크샵 개발할 때 정말 흔한 벽이에요. 결론부터: 됩니다. GPU 없이 CPU 인스턴스에서 DCGM 지표를 "가짜로" 만들어 Prometheus로 보내는 방법이 여러 개 있습니다. 현재 쓸 수 있는 실제 도구들을 확인해서 정확히 알려드릴게요.
+
+
+3 tool calls
+Web search: fake dcgm-exporter mock GPU metrics Prometheus without GPU test
+10 results
+
+Web search: DCGM fake GPU injection mode nv-hostengine dcgmi test inject metrics
+10 results
+
+Web search: avalanche prometheus synthetic metrics generator fake exporter
+10 results
+
+
+Thought complete
+This is a solid set of real tools to work with. I'm ranking the best fit for building a GPU monitoring workshop on a CPU-only instance without real hardware, starting with purpose-built fake DCGM exporters that let dashboards and alerts work unchanged. Fake-dcgm-exporter is the simplest drop-in since it serves DCGM-named metrics so Prometheus and existing dashboards light up immediately. The dcgm-fake-gpu-exporter is more compelling for a workshop though, since it offers realistic behavior profiles (idle, training, thermal throttle), scales to simulate large fleets, and uses DCGM's actual injection framework so metric names match a real deployment exactly—great for both the fleet module and alert testing. There's also an Intel-based Go exporter worth considering as a third option. For Kubernetes-level simulation, run-ai/fake-gpu-operator stands out—it can make a CPU-only EKS cluster appear to have GPU nodes complete with a fake dcgm-exporter, letting the whole EKS GPU-observability lab run without real hardware, though I should flag that it emits no temperature or power data so some dashboard panels will stay blank unless recording rules are added. Beyond that, there are generic Prometheus load-testing tools like avalanche that could help with scale testing even though they're not GPU-specific. CGM's own injection framework — synthetic field injection via dcgmi test --inject, NVML Injection mode that swaps in fake implementations, and an error injection framework for simulating GPU faults like XID/ECC events. The fake exporters mentioned are actually built on top of this, so while you could wire nv-hostengine and dcgm-exporter against injected NVML directly on a CPU box, it's fiddly — better to lean on the pre-built fakes and reserve DCGM's native error-injection for the proper XID/ECC alert lab. I also want to flag Grafana dashboard 25618, "NVIDIA DCGM GPU Overview (tested GPU-free)" — it's explicitly designed and validated without a real GPU, working against both real dcgm-exporter and simulated sources like fake-gpu-operator. That's a great fit for the workshop, though temp/power panels need recording rules when paired with fake-gpu-operator. For the recommendation itself, I'm leaning toward saiakhil2012/dcgm-fake-gpu-exporter as the primary choice for the EC2/Docker track given its realistic profiles and scale, with crazytaxii/fake-dcgm-exporter as a simpler fallback — both pointed at Prometheus the same way the real exporter would be. For the EKS track, run-ai/fake-gpu-operator lets a CPU-only cluster present fake GPU nodes and metrics, enabling a full GPU Operator + kube-prometheus-stack + ServiceMonitor lab without real hardware, with the same temp/power caveat. The key selling point across both tracks is that since these tools emit identical DCGM metric names, everything built on fake data — dashboards, PromQL, alert rules — transfers unchanged once real GPUs are available; you just swap exporters. I should be upfront that synthetic data means some panels like temperature/power may stay flat or blank depending on the tool, and realism is bounded by the profile quality. For the "load → watch it move" lab, fake data means driving the pattern via a profile switch rather than a real gpu-burn workload, which works for demos but is worth flagging. For actual development, the fastest setup is Docker Compose on a cheap CPU instance (or even locally) running fake-dcgm-exporter, Prometheus, Grafana, and the standard dashboards — enough to build the whole EC2 track without touching a GPU until final validation. This also opens up a nice workshop feature: offering a "no-GPU / simulation mode" path for attendees without GPU quota, lowering the barrier to entry. I'll structure my answer as a direct yes with the real tools grouped by fit, per-track recommendations for EC2/EKS, the key insight about matching exact metric names to avoid rework, caveats about synthetic data and blank temp/power fields, and a concrete dev setup suggestion — possibly offering to add a "시뮬레이션 모드" to the Lab setup or produce a Docker Compose file. I'll link the GitHub repos inline, keeping citations light and properly attributed rather than over-quoting. I'm drafting the response in Korean, concise but complete, using a short table or grouped bullets since the user prefers beginner-friendly explanations of what each tool does and why to pick it. For primary recommendations, I'm leaning toward the Docker-based fake GPU exporters for simple and realistic EC2 setups, a config-driven alternative, the fake-gpu-operator for EKS, a GPU-free-tested Grafana dashboard, and a DCGM error-injection framework for alert labs. I'll make sure to emphasize the "zero rework" point prominently since that's the key professional insight, and close by offering to rewrite Labs 1-4 in a "simulation mode" so the workshop can run end-to-end without real GPUs.
+있습니다. 그것도 아주 잘 맞는 도구들이 여러 개 있어요. 핵심은 **"DCGM과 똑같은 지표 이름(DCGM_FI_DEV_*)을 가짜로 뿜어주는 익스포터"**를 CPU 인스턴스에 띄우는 겁니다. 이러면 Prometheus는 진짜 dcgm-exporter를 긁는 것과 똑같이 동작하고, 대시보드·알림도 그대로 켜집니다.
+
+바로 쓸 수 있는 도구 (실제 존재 확인함)
+EC2(Docker) — 가장 잘 맞음
+
+saiakhil2012/dcgm-fake-gpu-exporter — 워크샵용 1순위 추천. DCGM injection 프레임워크 기반이라 지표 이름이 실제와 동일하고, **7가지 동작 프로파일(유휴/학습/추론/스로틀 등)**과 1000+ GPU 스케일 시뮬레이션, Docker 지원. 대시보드도 살아있게 움직이고 플릿 규모도 흉내 냅니다.
+crazytaxii/fake-dcgm-exporter — "GPU 없는 개발 환경용 가짜 DCGM exporter." 가장 단순한 드롭인. 일단 그래프부터 띄우고 싶을 때.
+intel/fakedev-exporter — Intel이 만든 Go 익스포터, GPU 시뮬레이션 주목적에 설정으로 값 패턴 제어. 설정 기반을 선호하면.
+EKS 트랙 — 쿠버네티스 레벨에서 통째로 가짜 4. run-ai/fake-gpu-operator — CPU 노드만 있는 EKS 클러스터를 GPU 노드가 있는 것처럼 보이게 합니다(가짜 dcgm-exporter 포함). GPU Operator + kube-prometheus-stack + ServiceMonitor + Pod 단위 귀속 랩을 GPU 없이 그대로 만들 수 있어요.
+
+대시보드 / 알림 보조 5. Grafana 대시보드 25618 "NVIDIA DCGM GPU Overview (tested GPU-free)" — 아예 GPU 없이 만들고 테스트한 대시보드. 진짜 dcgm-exporter에도 그대로 동작. (단, fake-gpu-operator는 온도·전력을 안 뿜어서 그 두 패널은 recording rule을 넣어야 채워집니다 — 캐비엇.) 6. DCGM Error Injection 프레임워크 (NVIDIA 문서) — XID/ECC 같은 하드웨어 오류를 주입해 Lab 6(알림)에서 "오류 알림이 실제로 터지는" 걸 보여줄 때 정석.
+
+(참고로 prometheus-community/avalanche는 지표 이름이 GPU용이 아니라 범용 부하 생성기라, "대규모 비용/카디널리티" 설명용으로는 좋지만 GPU 대시보드엔 안 맞습니다.)
+
+이게 왜 결정적이냐 (zero rework)
+위 도구들은 실제 DCGM과 동일한 지표 이름을 노출합니다. 그래서 가짜 데이터로 만든 대시보드·PromQL·알림 규칙이 나중에 진짜 GPU로 바꿔도 그대로 작동합니다. 개발 땐 fake exporter, 검증 땐 진짜 dcgm-exporter로 컨테이너만 교체하면 끝. 워크샵 제작 전 과정을 GPU 없이 끝내고, 마지막에 GPU 한 대로 한 번만 최종 확인하면 됩니다.
+
+솔직한 한계
+합성 데이터라 패턴이 "진짜 학습 부하"만큼 자연스럽진 않습니다. Lab 5(부하 관찰)는 gpu-burn 대신 프로파일 전환(유휴→학습)으로 연출하게 됩니다.
+도구에 따라 온도·전력 등 일부 지표는 비거나 평평할 수 있습니다(위 캐비엇).
+제안
+이거 하나로 워크샵이 더 좋아집니다. **"GPU 없이도 되는 시뮬레이션 모드"**를 워크샵에 정식 경로로 넣으면, GPU 쿼터가 없는 수강생도 끝까지 따라올 수 있어 진입 장벽이 확 낮아집니다.
+
+원하시면 Lab 1~4를 "시뮬레이션 모드"(fake-dcgm-exporter + Prometheus + Grafana + 대시보드 25618) 기준으로 Docker Compose·설정까지 완성본으로 다시 잡아드릴게요. 지금 바로 CPU 인스턴스(또는 로컬)에서 돌려볼 수 있는 형태로요. 그렇게 갈까요?
+
+Est. Credits Used: 3.85
+
 
 
 
